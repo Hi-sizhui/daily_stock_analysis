@@ -1,0 +1,64 @@
+name: Daily Stock Analysis & Send Email (yagmail)
+
+on:
+  schedule:
+    # UTC时区，对应北京时间：早6点（UTC 22:00）、晚10点（UTC 14:00）
+    - cron: '0 22 * * *'  
+    - cron: '0 14 * * *'  
+  workflow_dispatch:  # 手动触发测试
+
+jobs:
+  run-analysis-send-email:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 检出仓库代码
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. 配置Python环境
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # 适配yagmail（3.7+均可）
+
+      # 3. 安装依赖（核心：新增yagmail，若有其他依赖加在后面）
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yagmail  # 安装yagmail
+          # 若项目有requirements.txt，追加这行：pip install -r requirements.txt
+
+      # 4. 运行股票分析+发送邮件（整合你的yagmail代码）
+      - name: Run Script & Send Email
+        run: |
+          python - <<EOF
+          import yagmail
+          import os
+
+          # 从GitHub Secrets环境变量读取配置（避免硬编码）
+          user = os.getenv("EMAIL_USER")
+          password = os.getenv("EMAIL_PASS")
+          to = os.getenv("EMAIL_TO")
+
+          # 初始化yagmail（复用你的测试代码逻辑）
+          yag = yagmail.SMTP(user=user,
+                             password=password,
+                             host='smtp.qq.com')
+
+          # 邮件主题/内容（可替换为股票分析结果）
+          subject = '每日股票分析报告'
+          contents = [
+              '本次股票分析脚本已成功运行！',
+              '分析时间：{}'.format(__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+              '（可在此处补充脚本输出的股票分析内容）'
+          ]
+
+          # 发送邮件
+          yag.send(to=to, subject=subject, contents=contents)
+          print("邮件发送成功！")
+          EOF
+        env:
+          # 传递Secrets到脚本环境
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
