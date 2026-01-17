@@ -1,0 +1,86 @@
+name: Daily Stock Analysis & Send Email (yagmail)
+
+on:
+  schedule:
+    # 核心修改：每小时整点执行（UTC时区），替换原有两个固定定时
+    - cron: '0 * * * *'  
+  workflow_dispatch:  # 保留手动触发测试功能
+
+jobs:
+  run-analysis-send-email:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 检出仓库代码
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. 配置Python环境
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # 适配yagmail（3.7+均可）
+
+      # 3. 安装依赖（激活requirements.txt，补充仓库爬虫依赖）
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yagmail  # 安装yagmail
+          # 安装仓库爬虫/分析所需依赖
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+
+      # 4. 运行股票分析+发送邮件（已整合真实脚本数据，无需改动）
+      - name: Run Script & Send Email
+        run: |
+          python - <<EOF
+          import yagmail
+          import os
+          import subprocess
+          from datetime import datetime
+
+          # 从GitHub Secrets环境变量读取配置
+          email_user = os.getenv("EMAIL_USER")
+          email_pass = os.getenv("EMAIL_PASS")
+          email_to = os.getenv("EMAIL_TO")
+
+          # 调用仓库核心脚本main.py，捕获股票分析真实结果
+          def get_real_stock_analysis():
+              try:
+                  stock_result = subprocess.check_output(
+                      ["python", "main.py"],
+                      encoding="utf-8",
+                      timeout=300
+                  )
+                  return f"### Real Stock Analysis Result\\n\\n{stock_result}"
+              except subprocess.CalledProcessError as e:
+                  return f"### Script Run Failed\\n\\nError Output: {e.output}\\nReturn Code: {e.returncode}"
+              except Exception as e:
+                  return f"### Unknown Error\\n\\nError Details: {str(e)}"
+
+          # 构建邮件内容
+          subject = f'Daily Stock Analysis Report - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+          real_stock_content = get_real_stock_analysis()
+          contents = [
+              'This stock analysis script ran automatically successfully!',
+              '='*50,
+              real_stock_content,
+              '='*50,
+              '(This email is sent automatically by GitHub Actions, please do not reply.)'
+          ]
+
+          # 初始化yagmail并发送邮件
+          if all([email_user, email_pass, email_to]):
+              yag = yagmail.SMTP(
+                  user=email_user,
+                  password=email_pass,
+                  host='smtp.qq.com',
+                  port=465
+              )
+              yag.send(to=email_to, subject=subject, contents=contents)
+              print("邮件发送成功！")
+          else:
+              raise Exception("邮箱配置不完整，请检查GitHub Secrets环境变量！")
+          EOF
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
